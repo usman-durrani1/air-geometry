@@ -13,7 +13,11 @@ CONTACT_DISTANCE = max(
     int(CONTROL_DOT_RADIUS * 3)
 )
 
-HAND_RECOVERY_TIME = 1.5
+HAND_RECOVERY_TIME = 1.0
+
+# After clearing with a fist, drawing is
+# completely disabled for this amount of time.
+CLEAR_COOLDOWN_TIME = 1.0
 
 
 class LiveLine:
@@ -112,50 +116,69 @@ class LineSystem:
         # CONTACT / SHAPE CREATION
         # --------------------------------------
 
-        # Anchors that were connected during
-        # the current contact event.
         self.contact_anchors = set()
 
-        # Whether the current contact event
-        # is active.
         self.contact_active = False
 
-        # Whether a structure was already
-        # created from the current contact.
         self.structure_created = False
 
         # --------------------------------------
         # STRUCTURE STATE
         # --------------------------------------
 
-        # True when the current live geometry
-        # is a triangle or rectangle.
         self.structure_active = False
 
-        # Anchor names belonging to the
-        # currently formed structure.
         self.structure_anchors = []
 
         # --------------------------------------
         # HAND LOSS RECOVERY
         # --------------------------------------
 
-        # Time at which a required hand
-        # disappeared.
         self.hand_missing_since = {
             "left": None,
             "right": None,
         }
 
-        # Whether the structure is currently
-        # hidden because a hand is missing.
         self.structure_hidden = False
+
+        # --------------------------------------
+        # CLEAR COOLDOWN
+        # --------------------------------------
+
+        # Time at which the clear cooldown began.
+        self.clear_cooldown_started = None
+
+    # ======================================
+    # CLEAR COOLDOWN
+    # ======================================
+
+    def cooldown_active(self):
+
+        if self.clear_cooldown_started is None:
+            return False
+
+        elapsed = (
+            time.perf_counter()
+            -
+            self.clear_cooldown_started
+        )
+
+        if elapsed >= CLEAR_COOLDOWN_TIME:
+
+            self.clear_cooldown_started = None
+
+            return False
+
+        return True
 
     # ======================================
     # CREATE A HAND LINE
     # ======================================
 
     def create_left_line(self):
+
+        if self.cooldown_active():
+            return
 
         if self.left_created:
             return
@@ -170,6 +193,9 @@ class LineSystem:
         self.left_created = True
 
     def create_right_line(self):
+
+        if self.cooldown_active():
+            return
 
         if self.right_created:
             return
@@ -211,6 +237,9 @@ class LineSystem:
         anchors
     ):
 
+        if self.cooldown_active():
+            return set()
+
         if not (
             self.left_created
             and
@@ -236,9 +265,8 @@ class LineSystem:
 
         connected = set()
 
-        # Find groups where every dot is
-        # physically close enough to every
-        # other dot in that group.
+        # Find pairs of dots that are
+        # physically close enough.
         for i in range(
             len(available)
         ):
@@ -264,22 +292,21 @@ class LineSystem:
                     )
                     <= CONTACT_DISTANCE
                 ):
+
                     connected.update(
                         pair
                     )
 
-        # A simple pair is not enough.
         if len(connected) < 3:
             return set()
 
-        # Check every possible 3-dot
-        # combination first.
         connected_list = list(
             connected
         )
 
         valid_group = set()
 
+        # Check every possible 3-dot group.
         for i in range(
             len(connected_list)
         ):
@@ -375,6 +402,9 @@ class LineSystem:
         anchor_names
     ):
 
+        if self.cooldown_active():
+            return
+
         names = list(
             anchor_names
         )
@@ -417,6 +447,9 @@ class LineSystem:
         self,
         anchor_names
     ):
+
+        if self.cooldown_active():
+            return
 
         required = {
             "left_thumb",
@@ -476,6 +509,9 @@ class LineSystem:
         anchors
     ):
 
+        if self.cooldown_active():
+            return
+
         group = self.find_connected_group(
             anchors
         )
@@ -483,9 +519,9 @@ class LineSystem:
         # No three-dot connection.
         if len(group) < 3:
 
-            # If the dots have separated
-            # after a valid contact, create
-            # the stored structure now.
+            # If the dots separated after
+            # a valid contact, create the
+            # stored structure.
             if (
                 self.contact_active
                 and
@@ -516,7 +552,6 @@ class LineSystem:
 
             return
 
-        # We are currently touching.
         self.contact_active = True
 
         # Four dots always take priority.
@@ -528,8 +563,6 @@ class LineSystem:
 
         elif len(group) == 3:
 
-            # Never downgrade an already
-            # detected four-dot connection.
             if len(
                 self.contact_anchors
             ) < 4:
@@ -538,8 +571,6 @@ class LineSystem:
                     group
                 )
 
-        # Do not create the structure while
-        # the dots are still touching.
         self.structure_created = False
 
     # ======================================
@@ -650,7 +681,7 @@ class LineSystem:
             self.structure_hidden = False
 
         # ----------------------------------
-        # 1.5 SECOND EXPIRATION
+        # 1 SECOND EXPIRATION
         # ----------------------------------
 
         for side in (
@@ -713,8 +744,12 @@ class LineSystem:
         anchors
     ):
 
-        # Handle new 3-dot / 4-dot
-        # contact events.
+        # During clear cooldown absolutely
+        # nothing can be drawn or constructed.
+        if self.cooldown_active():
+
+            return
+
         if (
             not self.structure_active
         ):
@@ -723,13 +758,10 @@ class LineSystem:
                 anchors
             )
 
-        # Handle temporary hand loss.
         self.update_hand_recovery(
             anchors
         )
 
-        # If the structure is temporarily
-        # hidden, do not draw it.
         if self.structure_hidden:
             return
 
@@ -748,6 +780,11 @@ class LineSystem:
         self,
         anchors
     ):
+
+        # Do not allow implantation during
+        # the clear cooldown.
+        if self.cooldown_active():
+            return
 
         for line in self.live_lines:
 
@@ -801,6 +838,7 @@ class LineSystem:
 
     def clear(self):
 
+        # Clear everything immediately.
         self.live_lines = []
 
         self.fixed_lines = []
@@ -823,6 +861,11 @@ class LineSystem:
             "right": None,
         }
 
+        # Start the 1-second drawing lock.
+        self.clear_cooldown_started = (
+            time.perf_counter()
+        )
+
     # ======================================
     # DRAW IMPLANTED
     # ======================================
@@ -831,6 +874,12 @@ class LineSystem:
         self,
         frame
     ):
+
+        # The clear operation already removes
+        # all fixed lines. This check also makes
+        # the cooldown visually absolute.
+        if self.cooldown_active():
+            return
 
         for line in self.fixed_lines:
 
