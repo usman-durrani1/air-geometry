@@ -45,8 +45,10 @@ GREEN = (0, 255, 0)
 WHITE = (255, 255, 255)
 RED = (0, 0, 255)
 
-HAND_LINE_THICKNESS = 2
+# 2x thicker than 2.1
+HAND_LINE_THICKNESS = 4
 
+# 2x thicker than 2.1
 WHITE_LINE_THICKNESS = 2
 
 LANDMARK_RADIUS = 3
