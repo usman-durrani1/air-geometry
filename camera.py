@@ -1,7 +1,6 @@
 import cv2
 
 from config import (
-    CAMERA_INDEX,
     CAMERA_WIDTH,
     CAMERA_HEIGHT,
     WINDOW_WIDTH,
@@ -13,34 +12,27 @@ class Camera:
 
     def __init__(self):
 
-        self.capture = cv2.VideoCapture(
-            CAMERA_INDEX
-        )
+        self.cap = cv2.VideoCapture(0)
 
-        self.capture.set(
+        self.cap.set(
             cv2.CAP_PROP_FRAME_WIDTH,
             CAMERA_WIDTH
         )
 
-        self.capture.set(
+        self.cap.set(
             cv2.CAP_PROP_FRAME_HEIGHT,
             CAMERA_HEIGHT
         )
 
-        if not self.capture.isOpened():
-
-            raise RuntimeError(
-                "Could not open webcam."
-            )
-
     def read(self):
 
-        success, frame = self.capture.read()
+        success, frame = (
+            self.cap.read()
+        )
 
         if not success:
             return None
 
-        # Selfie view
         frame = cv2.flip(
             frame,
             1
@@ -50,10 +42,14 @@ class Camera:
 
     def release(self):
 
-        self.capture.release()
+        if self.cap is not None:
+
+            self.cap.release()
 
     @staticmethod
-    def create_window(name):
+    def create_window(
+        name
+    ):
 
         cv2.namedWindow(
             name,
