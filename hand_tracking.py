@@ -55,15 +55,6 @@ HAND_CONNECTIONS = [
 ]
 
 
-# How strongly the new detection affects
-# the previous position.
-SMOOTHING_ALPHA = 0.35
-
-# Keep the last good hand briefly when
-# MediaPipe temporarily loses it.
-HAND_HOLD_TIME = 0.25
-
-
 class HandTracker:
 
     def __init__(self):
@@ -98,21 +89,6 @@ class HandTracker:
 
         self.start_time = time.perf_counter()
         self.last_timestamp_ms = 0
-
-        self.smoothed_points = {
-            "left": None,
-            "right": None,
-        }
-
-        self.last_seen = {
-            "left": 0.0,
-            "right": 0.0,
-        }
-
-        self.last_hands = {
-            "left": None,
-            "right": None,
-        }
 
     def detect(self, frame):
 
@@ -150,172 +126,12 @@ class HandTracker:
 
         self.landmarker.close()
 
-    def _smooth_points(
-        self,
-        label,
-        points
-    ):
-
-        previous = self.smoothed_points[label]
-
-        if previous is None:
-
-            smoothed = [
-                [float(x), float(y)]
-                for x, y in points
-            ]
-
-        else:
-
-            smoothed = []
-
-            for old, new in zip(
-                previous,
-                points
-            ):
-
-                x = (
-                    old[0]
-                    +
-                    (
-                        new[0] - old[0]
-                    )
-                    * SMOOTHING_ALPHA
-                )
-
-                y = (
-                    old[1]
-                    +
-                    (
-                        new[1] - old[1]
-                    )
-                    * SMOOTHING_ALPHA
-                )
-
-                smoothed.append(
-                    [x, y]
-                )
-
-        self.smoothed_points[label] = smoothed
-
-        return [
-            (
-                int(point[0]),
-                int(point[1])
-            )
-            for point in smoothed
-        ]
-
-    def process_hands(
-        self,
-        result,
-        width,
-        height
-    ):
-
-        now = time.perf_counter()
-
-        detected = {}
-
-        for i, landmarks in enumerate(
-            result.hand_landmarks
-        ):
-
-            if i >= len(result.handedness):
-                continue
-
-            categories = result.handedness[i]
-
-            if not categories:
-                continue
-
-            label = (
-                categories[0]
-                .display_name
-                .lower()
-            )
-
-            if label not in (
-                "left",
-                "right"
-            ):
-                continue
-
-            raw_points = []
-
-            for landmark in landmarks:
-
-                raw_points.append(
-                    (
-                        landmark.x * width,
-                        landmark.y * height
-                    )
-                )
-
-            points = self._smooth_points(
-                label,
-                raw_points
-            )
-
-            detected[label] = {
-                "landmarks": points,
-
-                "thumb": points[4],
-                "index": points[8],
-                "middle": points[12],
-                "ring": points[16],
-                "pinky": points[20],
-            }
-
-            self.last_seen[label] = now
-            self.last_hands[label] = (
-                detected[label]
-            )
-
-        # Short recovery window.
-        #
-        # If MediaPipe loses a hand for a
-        # very brief moment, keep the last
-        # stable position instead of making
-        # it instantly disappear.
-
-        hands = {}
-
-        for label in (
-            "left",
-            "right"
-        ):
-
-            if label in detected:
-
-                hands[label] = detected[label]
-
-                continue
-
-            if (
-                self.last_hands[label] is not None
-                and
-                now - self.last_seen[label]
-                <= HAND_HOLD_TIME
-            ):
-
-                hands[label] = self.last_hands[label]
-
-        return hands
-
 
 def extract_hands(
     result,
     width,
     height
 ):
-    """
-    Compatibility wrapper.
-
-    Main.py can continue calling
-    extract_hands(), while the actual
-    smoothing is handled by HandTracker.
-    """
 
     hands = {}
 
@@ -359,14 +175,9 @@ def extract_hands(
             )
 
         hands[label] = {
-
             "landmarks": points,
-
             "thumb": points[4],
             "index": points[8],
-            "middle": points[12],
-            "ring": points[16],
-            "pinky": points[20],
         }
 
     return hands
@@ -379,10 +190,7 @@ def draw_hand(
 
     points = hand["landmarks"]
 
-    # -------------------------------
     # Skeleton
-    # -------------------------------
-
     for start, end in HAND_CONNECTIONS:
 
         cv2.line(
@@ -394,10 +202,7 @@ def draw_hand(
             cv2.LINE_AA
         )
 
-    # -------------------------------
-    # Normal landmarks
-    # -------------------------------
-
+    # Landmarks
     for point in points:
 
         cv2.circle(
@@ -409,34 +214,28 @@ def draw_hand(
             cv2.LINE_AA
         )
 
-    # -------------------------------
     # Control points
-    # -------------------------------
-
     control_radius = int(
         CONTROL_DOT_RADIUS * 2
     )
 
-    control_points = [
-
+    cv2.circle(
+        frame,
         hand["thumb"],
+        control_radius,
+        RED,
+        -1,
+        cv2.LINE_AA
+    )
+
+    cv2.circle(
+        frame,
         hand["index"],
-        hand["middle"],
-        hand["ring"],
-        hand["pinky"],
-
-    ]
-
-    for point in control_points:
-
-        cv2.circle(
-            frame,
-            point,
-            control_radius,
-            RED,
-            -1,
-            cv2.LINE_AA
-        )
+        control_radius,
+        RED,
+        -1,
+        cv2.LINE_AA
+    )
 
 
 def draw_hands(
