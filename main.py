@@ -2,6 +2,7 @@ import cv2
 import time
 
 from camera import Camera
+
 from hand_tracking import (
     HandTracker,
     extract_hands,
@@ -14,13 +15,10 @@ from lines import LineSystem
 
 WINDOW_NAME = "Air Geometry"
 
-# Right-side status panel
-PANEL_WIDTH = 330
-PANEL_BACKGROUND = (30, 30, 30)
-PANEL_ALPHA = 0.88
 
-
-def build_anchors(hands):
+def build_anchors(
+    hands
+):
 
     anchors = {}
 
@@ -47,217 +45,129 @@ def build_anchors(hands):
     return anchors
 
 
-def get_hand_landmarks(
-    result,
-    hand_name
+def gesture_name(
+    gesture
 ):
 
-    hand_name = hand_name.lower()
+    if gesture is None:
+        return "NO HAND"
 
-    for i, categories in enumerate(
-        result.handedness
-    ):
+    if gesture["full_fist"]:
+        return "FULL FIST"
 
-        if not categories:
-            continue
+    if gesture["implant"]:
+        return "IMPLANT"
 
-        label = (
-            categories[0]
-            .display_name
-            .lower()
-        )
+    if gesture["pinch"]:
+        return "PINCH"
 
-        if label == hand_name:
-
-            if i < len(result.hand_landmarks):
-
-                return result.hand_landmarks[i]
-
-    return None
+    return "NONE"
 
 
-def draw_status_panel(
+def state_text(
+    value
+):
+
+    if value:
+        return "OPEN"
+
+    return "CLOSED"
+
+
+def draw_hand_panel(
     frame,
-    left_gesture,
-    right_gesture,
-    fps
+    side,
+    gesture,
+    x,
+    y
 ):
 
-    height, width = frame.shape[:2]
-
-    panel_left = max(
-        0,
-        width - PANEL_WIDTH
-    )
-
-    # ----------------------------------
-    # PANEL BACKGROUND
-    # ----------------------------------
-
-    overlay = frame.copy()
+    panel_width = 250
+    panel_height = 205
 
     cv2.rectangle(
-        overlay,
-        (panel_left, 0),
-        (width, height),
-        PANEL_BACKGROUND,
+        frame,
+        (x, y),
+        (
+            x + panel_width,
+            y + panel_height
+        ),
+        (30, 30, 30),
         -1
     )
 
-    frame[:] = cv2.addWeighted(
-        overlay,
-        PANEL_ALPHA,
+    cv2.rectangle(
         frame,
-        1.0 - PANEL_ALPHA,
-        0
-    )
-
-    x = panel_left + 18
-
-    # ----------------------------------
-    # TITLE
-    # ----------------------------------
-
-    y = 30
-
-    cv2.putText(
-        frame,
-        "AIR GEOMETRY 2.2",
         (x, y),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.62,
+        (
+            x + panel_width,
+            y + panel_height
+        ),
         (255, 255, 255),
-        2,
-        cv2.LINE_AA
+        1
     )
 
-    y += 30
+    title = side.upper()
 
     cv2.putText(
         frame,
-        f"FPS: {fps:.1f}",
-        (x, y),
+        title,
+        (x + 12, y + 25),
         cv2.FONT_HERSHEY_SIMPLEX,
-        0.45,
-        (180, 180, 180),
+        0.55,
+        (255, 255, 255),
         1,
         cv2.LINE_AA
     )
 
-    y += 30
+    if gesture is None:
 
-    # ----------------------------------
-    # HAND DISPLAY
-    # ----------------------------------
+        values = {
+            "Thumb": "NO HAND",
+            "Index": "NO HAND",
+            "Middle": "NO HAND",
+            "Ring": "NO HAND",
+            "Pinky": "NO HAND",
+        }
 
-    def draw_hand(
-        name,
-        gesture
-    ):
+        current_gesture = "NO HAND"
 
-        nonlocal y
+    else:
 
-        detected = gesture is not None
+        values = {
+            "Thumb": state_text(
+                gesture["thumb"]
+            ),
 
-        # Hand heading
-        cv2.putText(
-            frame,
-            name,
-            (x, y),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.55,
-            (0, 255, 255),
-            2,
-            cv2.LINE_AA
+            "Index": state_text(
+                gesture["index"]
+            ),
+
+            "Middle": state_text(
+                gesture["middle"]
+            ),
+
+            "Ring": state_text(
+                gesture["ring"]
+            ),
+
+            "Pinky": state_text(
+                gesture["pinky"]
+            ),
+        }
+
+        current_gesture = gesture_name(
+            gesture
         )
 
-        y += 23
+    row_y = y + 52
 
-        if not detected:
-
-            cv2.putText(
-                frame,
-                "NOT DETECTED",
-                (x, y),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.43,
-                (120, 120, 120),
-                1,
-                cv2.LINE_AA
-            )
-
-            y += 35
-
-            return
+    for name, value in values.items():
 
         cv2.putText(
             frame,
-            "DETECTED",
-            (x, y),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.43,
-            (0, 255, 0),
-            1,
-            cv2.LINE_AA
-        )
-
-        y += 25
-
-        # Finger states
-        finger_states = [
-            ("T", gesture["thumb"]),
-            ("I", gesture["index"]),
-            ("M", gesture["middle"]),
-            ("R", gesture["ring"]),
-            ("P", gesture["pinky"]),
-        ]
-
-        for label, is_open in finger_states:
-
-            state = (
-                "OPEN"
-                if is_open
-                else "CLOSED"
-            )
-
-            text = f"{label}: {state}"
-
-            cv2.putText(
-                frame,
-                text,
-                (x, y),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.40,
-                (255, 255, 255),
-                1,
-                cv2.LINE_AA
-            )
-
-            y += 20
-
-        # Current gesture
-        if gesture["pinch"]:
-
-            action = "PINCH / CREATE"
-
-        elif gesture["implant"]:
-
-            action = "IMPLANT"
-
-        elif gesture["full_fist"]:
-
-            action = "FULL FIST / CLEAR"
-
-        else:
-
-            action = "NO GESTURE"
-
-        y += 3
-
-        cv2.putText(
-            frame,
-            f"Action: {action}",
-            (x, y),
+            f"{name}: {value}",
+            (x + 12, row_y),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.40,
             (255, 255, 255),
@@ -265,51 +175,127 @@ def draw_status_panel(
             cv2.LINE_AA
         )
 
-        y += 35
+        row_y += 25
 
-    draw_hand(
-        "LEFT HAND",
-        left_gesture
+    cv2.putText(
+        frame,
+        f"Gesture: {current_gesture}",
+        (x + 12, y + 185),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.40,
+        (255, 255, 255),
+        1,
+        cv2.LINE_AA
     )
 
-    draw_hand(
-        "RIGHT HAND",
-        right_gesture
+
+def draw_control_panel(
+    frame,
+    left_gesture,
+    right_gesture,
+    cooldown
+):
+
+    height, width = frame.shape[:2]
+
+    panel_width = 270
+
+    cv2.rectangle(
+        frame,
+        (
+            width - panel_width,
+            0
+        ),
+        (
+            width,
+            height
+        ),
+        (20, 20, 20),
+        -1
     )
+
+    cv2.putText(
+        frame,
+        "CONTROL PANEL",
+        (
+            width - panel_width + 12,
+            28
+        ),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.55,
+        (255, 255, 255),
+        1,
+        cv2.LINE_AA
+    )
+
+    draw_hand_panel(
+        frame,
+        "LEFT",
+        left_gesture,
+        width - panel_width + 10,
+        45
+    )
+
+    draw_hand_panel(
+        frame,
+        "RIGHT",
+        right_gesture,
+        width - panel_width + 10,
+        260
+    )
+
+    if cooldown:
+
+        cv2.putText(
+            frame,
+            "CLEAR COOLDOWN",
+            (
+                width - panel_width + 12,
+                490
+            ),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.42,
+            (255, 255, 255),
+            1,
+            cv2.LINE_AA
+        )
+
+        cv2.putText(
+            frame,
+            "Drawing locked: 1.0s",
+            (
+                width - panel_width + 12,
+                515
+            ),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.38,
+            (255, 255, 255),
+            1,
+            cv2.LINE_AA
+        )
 
 
 def main():
 
-    print()
     print(
-        "================================"
+        "Air Geometry"
     )
-    print(
-        "        AIR GEOMETRY 2.2"
-    )
-    print(
-        "================================"
-    )
-    print()
+
     print(
         "Pinch thumb + index to CREATE a line."
     )
-    print(
-        "Release the pinch: the line stays LIVE."
-    )
-    print(
-        "Move your hands to deform the geometry."
-    )
+
     print(
         "Thumb + index OPEN, other fingers CLOSED = IMPLANT."
     )
+
     print(
         "All five fingers CLOSED = CLEAR."
     )
+
     print(
         "Press Q to quit."
     )
-    print()
 
     camera = Camera()
 
@@ -347,10 +333,6 @@ def main():
                 frame.shape[:2]
             )
 
-            # ==================================
-            # HAND TRACKING
-            # ==================================
-
             result = tracker.detect(
                 frame
             )
@@ -367,43 +349,61 @@ def main():
             )
 
             # ==================================
-            # FIND HAND LANDMARKS
-            # ==================================
-
-            left_landmarks = (
-                get_hand_landmarks(
-                    result,
-                    "left"
-                )
-            )
-
-            right_landmarks = (
-                get_hand_landmarks(
-                    result,
-                    "right"
-                )
-            )
-
-            # ==================================
             # GESTURES
             # ==================================
 
             left_gesture = None
             right_gesture = None
 
-            if left_landmarks is not None:
+            if "left" in hands:
 
-                left_gesture = (
-                    analyze_gestures(
-                        left_landmarks
+                left_index = next(
+                    i
+                    for i, categories
+                    in enumerate(
+                        result.handedness
+                    )
+                    if (
+                        categories
+                        and
+                        categories[0]
+                        .display_name
+                        .lower()
+                        == "left"
                     )
                 )
 
-            if right_landmarks is not None:
+                left_gesture = (
+                    analyze_gestures(
+                        result.hand_landmarks[
+                            left_index
+                        ]
+                    )
+                )
+
+            if "right" in hands:
+
+                right_index = next(
+                    i
+                    for i, categories
+                    in enumerate(
+                        result.handedness
+                    )
+                    if (
+                        categories
+                        and
+                        categories[0]
+                        .display_name
+                        .lower()
+                        == "right"
+                    )
+                )
 
                 right_gesture = (
                     analyze_gestures(
-                        right_landmarks
+                        result.hand_landmarks[
+                            right_index
+                        ]
                     )
                 )
 
@@ -485,7 +485,7 @@ def main():
             )
 
             # ==================================
-            # IMPLANT
+            # SEPARATE IMPLANT
             # ==================================
 
             if (
@@ -494,7 +494,8 @@ def main():
                 not previous_left_implant
             ):
 
-                lines.implant(
+                lines.implant_hand(
+                    "left",
                     anchors
                 )
 
@@ -504,7 +505,8 @@ def main():
                 not previous_right_implant
             ):
 
-                lines.implant(
+                lines.implant_hand(
+                    "right",
                     anchors
                 )
 
@@ -518,7 +520,9 @@ def main():
                 not previous_left_clear
             ):
 
-                lines.clear()
+                if not lines.cooldown_active():
+
+                    lines.clear()
 
             if (
                 right_clear
@@ -526,7 +530,9 @@ def main():
                 not previous_right_clear
             ):
 
-                lines.clear()
+                if not lines.cooldown_active():
+
+                    lines.clear()
 
             # ==================================
             # DRAW FIXED
@@ -560,20 +566,27 @@ def main():
 
             last_time = now
 
-            # ==================================
-            # STATUS PANEL
-            # ==================================
-
-            draw_status_panel(
+            cv2.putText(
                 frame,
-                left_gesture,
-                right_gesture,
-                fps
+                f"FPS: {fps:.1f}",
+                (15, 25),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (255, 255, 255),
+                1,
+                cv2.LINE_AA
             )
 
             # ==================================
-            # DISPLAY
+            # CONTROL PANEL
             # ==================================
+
+            draw_control_panel(
+                frame,
+                left_gesture,
+                right_gesture,
+                lines.cooldown_active()
+            )
 
             cv2.imshow(
                 WINDOW_NAME,
@@ -582,8 +595,7 @@ def main():
 
             key = (
                 cv2.waitKey(1)
-                &
-                0xFF
+                & 0xFF
             )
 
             if key == ord("q"):
@@ -627,5 +639,4 @@ def main():
 
 
 if __name__ == "__main__":
-
     main()
