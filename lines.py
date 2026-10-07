@@ -15,6 +15,10 @@ CONTACT_DISTANCE = max(
 
 HAND_RECOVERY_TIME = 1.5
 CLEAR_COOLDOWN_TIME = 1.0
+ONE_HAND_PINCH_DISTANCE = max(
+    10,
+    int(CONTROL_DOT_RADIUS * 2)
+)
 
 
 class LiveLine:
@@ -25,13 +29,8 @@ class LiveLine:
         end_anchor
     ):
 
-        self.start_anchor = (
-            start_anchor
-        )
-
-        self.end_anchor = (
-            end_anchor
-        )
+        self.start_anchor = start_anchor
+        self.end_anchor = end_anchor
 
     def draw(
         self,
@@ -40,21 +39,14 @@ class LiveLine:
     ):
 
         if (
-            self.start_anchor
-            not in anchors
+            self.start_anchor not in anchors
             or
-            self.end_anchor
-            not in anchors
+            self.end_anchor not in anchors
         ):
             return
 
-        start = anchors[
-            self.start_anchor
-        ]
-
-        end = anchors[
-            self.end_anchor
-        ]
+        start = anchors[self.start_anchor]
+        end = anchors[self.end_anchor]
 
         cv2.line(
             frame,
@@ -79,10 +71,7 @@ class FixedLine:
         self.end = end
         self.owner = owner
 
-    def draw(
-        self,
-        frame
-    ):
+    def draw(self, frame):
 
         cv2.line(
             frame,
@@ -105,27 +94,19 @@ class LineSystem:
         self.right_created = False
 
         # --------------------------------------
-        # CONTACT / SHAPE CREATION
+        # NORMAL TWO-HAND STRUCTURES
         # --------------------------------------
 
         self.contact_anchors = set()
         self.contact_active = False
         self.structure_created = False
 
-        # --------------------------------------
-        # STRUCTURE STATE
-        # --------------------------------------
-
         self.structure_active = False
         self.structure_anchors = []
-
-        # None      = normal lines
-        # triangle  = triangle structure
-        # rectangle = rectangle structure
         self.structure_type = None
 
         # --------------------------------------
-        # HAND LOSS RECOVERY
+        # HAND RECOVERY
         # --------------------------------------
 
         self.hand_missing_since = {
@@ -140,6 +121,30 @@ class LineSystem:
         # --------------------------------------
 
         self.clear_time = None
+
+        # --------------------------------------
+        # ONE-HAND GEOMETRY
+        # --------------------------------------
+
+        self.one_hand_active = {
+            "left": False,
+            "right": False,
+        }
+
+        self.one_hand_planted = {
+            "left": None,
+            "right": None,
+        }
+
+        self.one_hand_shape = {
+            "left": None,
+            "right": None,
+        }
+
+        self.one_hand_thumb_closed = {
+            "left": False,
+            "right": False,
+        }
 
     # ======================================
     # COOLDOWN
@@ -158,7 +163,7 @@ class LineSystem:
         )
 
     # ======================================
-    # CREATE A HAND LINE
+    # NORMAL LINE CREATION
     # ======================================
 
     def create_left_line(self):
@@ -199,29 +204,21 @@ class LineSystem:
     # DISTANCE
     # ======================================
 
-    def distance(
-        self,
-        a,
-        b
-    ):
+    def distance(self, a, b):
 
         dx = a[0] - b[0]
         dy = a[1] - b[1]
 
         return (
-            dx * dx
-            +
+            dx * dx +
             dy * dy
         ) ** 0.5
 
     # ======================================
-    # FIND CONNECTED DOTS
+    # TWO-HAND CONNECTED GROUP
     # ======================================
 
-    def find_connected_group(
-        self,
-        anchors
-    ):
+    def find_connected_group(self, anchors):
 
         if not (
             self.left_created
@@ -248,56 +245,34 @@ class LineSystem:
 
         connected = set()
 
-        for i in range(
-            len(available)
-        ):
+        for i in range(len(available)):
 
-            for j in range(
-                i + 1,
-                len(available)
-            ):
+            for j in range(i + 1, len(available)):
 
                 if (
                     self.distance(
-                        anchors[
-                            available[i]
-                        ],
-                        anchors[
-                            available[j]
-                        ]
+                        anchors[available[i]],
+                        anchors[available[j]]
                     )
                     <= CONTACT_DISTANCE
                 ):
 
-                    connected.update(
-                        {
-                            available[i],
-                            available[j]
-                        }
-                    )
+                    connected.update({
+                        available[i],
+                        available[j]
+                    })
 
         if len(connected) < 3:
             return set()
 
-        connected_list = list(
-            connected
-        )
-
+        connected_list = list(connected)
         valid_group = set()
 
-        for i in range(
-            len(connected_list)
-        ):
+        for i in range(len(connected_list)):
 
-            for j in range(
-                i + 1,
-                len(connected_list)
-            ):
+            for j in range(i + 1, len(connected_list)):
 
-                for k in range(
-                    j + 1,
-                    len(connected_list)
-                ):
+                for k in range(j + 1, len(connected_list)):
 
                     group = [
                         connected_list[i],
@@ -309,19 +284,12 @@ class LineSystem:
 
                     for a in range(3):
 
-                        for b in range(
-                            a + 1,
-                            3
-                        ):
+                        for b in range(a + 1, 3):
 
                             if (
                                 self.distance(
-                                    anchors[
-                                        group[a]
-                                    ],
-                                    anchors[
-                                        group[b]
-                                    ]
+                                    anchors[group[a]],
+                                    anchors[group[b]]
                                 )
                                 >
                                 CONTACT_DISTANCE
@@ -330,34 +298,21 @@ class LineSystem:
                                 all_close = False
 
                     if all_close:
+                        valid_group.update(group)
 
-                        valid_group.update(
-                            group
-                        )
-
-        # ----------------------------------
-        # FOUR ALWAYS BEATS THREE
-        # ----------------------------------
-
+        # Four points always win.
         if len(available) == 4:
 
             all_four_close = True
 
             for i in range(4):
 
-                for j in range(
-                    i + 1,
-                    4
-                ):
+                for j in range(i + 1, 4):
 
                     if (
                         self.distance(
-                            anchors[
-                                available[i]
-                            ],
-                            anchors[
-                                available[j]
-                            ]
+                            anchors[available[i]],
+                            anchors[available[j]]
                         )
                         >
                         CONTACT_DISTANCE
@@ -366,25 +321,17 @@ class LineSystem:
                         all_four_close = False
 
             if all_four_close:
-
-                return set(
-                    available
-                )
+                return set(available)
 
         return valid_group
 
     # ======================================
-    # BUILD TRIANGLE
+    # TWO-HAND TRIANGLE
     # ======================================
 
-    def create_triangle(
-        self,
-        anchor_names
-    ):
+    def create_triangle(self, anchor_names):
 
-        names = list(
-            anchor_names
-        )
+        names = list(anchor_names)
 
         if len(names) != 3:
             return
@@ -413,19 +360,14 @@ class LineSystem:
         )
 
         self.structure_active = True
-
         self.structure_anchors = names
-
         self.structure_type = "triangle"
 
     # ======================================
-    # BUILD RECTANGLE
+    # TWO-HAND RECTANGLE
     # ======================================
 
-    def create_rectangle(
-        self,
-        anchor_names
-    ):
+    def create_rectangle(self, anchor_names):
 
         required = {
             "left_thumb",
@@ -438,10 +380,6 @@ class LineSystem:
             return
 
         self.live_lines = []
-
-        # ----------------------------------
-        # RECTANGLE SIDES
-        # ----------------------------------
 
         self.live_lines.append(
             LiveLine(
@@ -483,74 +421,46 @@ class LineSystem:
         self.structure_type = "rectangle"
 
     # ======================================
-    # PROCESS DOT CONTACT
+    # TWO-HAND CONTACT
     # ======================================
 
-    def process_contact(
-        self,
-        anchors
-    ):
+    def process_contact(self, anchors):
 
         group = self.find_connected_group(
             anchors
         )
 
-        # ----------------------------------
-        # FOUR-POINT PRIORITY
-        # ----------------------------------
-
         if len(group) == 4:
 
             self.contact_active = True
+            self.contact_anchors = set(group)
 
-            self.contact_anchors = set(
-                group
-            )
-
-            self.create_rectangle(
-                group
-            )
+            self.create_rectangle(group)
 
             self.structure_created = True
 
             return
 
-        # ----------------------------------
-        # THREE-POINT CONTACT
-        # ----------------------------------
-
         if len(group) == 3:
 
             self.contact_active = True
-
-            self.contact_anchors = set(
-                group
-            )
+            self.contact_anchors = set(group)
 
             if not self.structure_active:
 
-                self.create_triangle(
-                    group
-                )
+                self.create_triangle(group)
 
                 self.structure_created = True
 
             return
 
-        # ----------------------------------
-        # CONTACT ENDED
-        # ----------------------------------
-
         self.contact_active = False
 
     # ======================================
-    # HAND PRESENCE / RECOVERY
+    # HAND RECOVERY
     # ======================================
 
-    def update_hand_recovery(
-        self,
-        anchors
-    ):
+    def update_hand_recovery(self, anchors):
 
         if not self.structure_active:
             return
@@ -570,97 +480,46 @@ class LineSystem:
         )
 
         if left_present:
-
-            self.hand_missing_since[
-                "left"
-            ] = None
-
+            self.hand_missing_since["left"] = None
         else:
-
-            if (
-                self.hand_missing_since[
-                    "left"
-                ]
-                is None
-            ):
-
-                self.hand_missing_since[
-                    "left"
-                ] = now
+            if self.hand_missing_since["left"] is None:
+                self.hand_missing_since["left"] = now
 
         if right_present:
-
-            self.hand_missing_since[
-                "right"
-            ] = None
-
+            self.hand_missing_since["right"] = None
         else:
-
-            if (
-                self.hand_missing_since[
-                    "right"
-                ]
-                is None
-            ):
-
-                self.hand_missing_since[
-                    "right"
-                ] = now
+            if self.hand_missing_since["right"] is None:
+                self.hand_missing_since["right"] = now
 
         required_hand_missing = False
 
-        for anchor in (
-            self.structure_anchors
-        ):
+        for anchor in self.structure_anchors:
 
-            if anchor.startswith(
-                "left_"
-            ):
+            if anchor.startswith("left_") and not left_present:
+                required_hand_missing = True
 
-                if not left_present:
-                    required_hand_missing = True
+            if anchor.startswith("right_") and not right_present:
+                required_hand_missing = True
 
-            if anchor.startswith(
-                "right_"
-            ):
+        self.structure_hidden = required_hand_missing
 
-                if not right_present:
-                    required_hand_missing = True
+        for side in ("left", "right"):
 
-        if required_hand_missing:
-
-            self.structure_hidden = True
-
-        else:
-
-            self.structure_hidden = False
-
-        for side in (
-            "left",
-            "right"
-        ):
-
-            missing_since = (
-                self.hand_missing_since[
-                    side
-                ]
-            )
+            missing_since = self.hand_missing_since[side]
 
             if missing_since is None:
                 continue
 
-            elapsed = (
+            if (
                 now - missing_since
-            )
-
-            if elapsed >= HAND_RECOVERY_TIME:
+                >= HAND_RECOVERY_TIME
+            ):
 
                 self.destroy_structure()
-
                 return
 
     # ======================================
-    # DESTROY CURRENT STRUCTURE
+    # DESTROY TWO-HAND STRUCTURE
     # ======================================
 
     def destroy_structure(self):
@@ -671,13 +530,11 @@ class LineSystem:
         self.right_created = False
 
         self.contact_anchors = set()
-
         self.contact_active = False
         self.structure_created = False
 
         self.structure_active = False
         self.structure_anchors = []
-
         self.structure_type = None
 
         self.structure_hidden = False
@@ -688,71 +545,411 @@ class LineSystem:
         }
 
     # ======================================
-    # DRAW LIVE
+    # ONE-HAND GEOMETRY
     # ======================================
 
-    def draw_live(
+    def start_one_hand(self, hand, anchors):
+
+        if self.cooldown_active():
+            return
+
+        thumb_name = hand + "_thumb"
+        index_name = hand + "_index"
+
+        if (
+            thumb_name not in anchors
+            or
+            index_name not in anchors
+        ):
+            return
+
+        thumb = anchors[thumb_name]
+        index = anchors[index_name]
+
+        # Remove the normal moving line for this hand.
+        # One-hand geometry now owns the line.
+        self.live_lines = [
+            line
+            for line in self.live_lines
+            if not (
+                line.start_anchor in {
+                    thumb_name,
+                    index_name,
+                }
+                and
+                line.end_anchor in {
+                    thumb_name,
+                    index_name,
+                }
+            )
+        ]
+
+        self.one_hand_planted[hand] = (
+            thumb,
+            index
+        )
+
+        self.one_hand_active[hand] = True
+        self.one_hand_shape[hand] = "rectangle"
+        self.one_hand_thumb_closed[hand] = False
+
+    def update_one_hand(
+        self,
+        hand,
+        anchors,
+        thumb_closed=False
+    ):
+
+        if not self.one_hand_active[hand]:
+            return
+
+        thumb_name = hand + "_thumb"
+        index_name = hand + "_index"
+
+        if (
+            thumb_name not in anchors
+            or
+            index_name not in anchors
+        ):
+            return
+
+        # ----------------------------------
+        # RECTANGLE -> TRIANGLE
+        # ----------------------------------
+
+        pinch_distance = self.distance(
+            anchors[thumb_name],
+            anchors[index_name]
+        )
+
+        if pinch_distance <= ONE_HAND_PINCH_DISTANCE:
+
+            self.one_hand_thumb_closed[hand] = True
+
+            # This transition belongs ONLY to
+            # the one-hand geometry system.
+            self.one_hand_shape[hand] = "triangle"
+
+            # Make absolutely sure the normal
+            # thumb-index LiveLine cannot reappear.
+            self.live_lines = [
+                line
+                for line in self.live_lines
+                if not (
+                    line.start_anchor in {
+                        thumb_name,
+                        index_name,
+                    }
+                    and
+                    line.end_anchor in {
+                        thumb_name,
+                        index_name,
+                    }
+                )
+            ]
+
+            return
+
+        # ----------------------------------
+        # NORMAL ONE-HAND RECTANGLE
+        # ----------------------------------
+
+        self.one_hand_thumb_closed[hand] = False
+
+        if self.one_hand_shape[hand] != "triangle":
+            self.one_hand_shape[hand] = "rectangle"
+
+    # ======================================
+    # DRAW ONE-HAND GEOMETRY
+    # ======================================
+
+    def draw_one_hand(
         self,
         frame,
+        hand,
         anchors
     ):
 
+        if not self.one_hand_active[hand]:
+            return
+
+        planted = self.one_hand_planted[hand]
+
+        if planted is None:
+            return
+
+        thumb_name = hand + "_thumb"
+        index_name = hand + "_index"
+
+        if index_name not in anchors:
+            return
+
+        planted_thumb, planted_index = planted
+        current_index = anchors[index_name]
+
         # ----------------------------------
-        # IMPORTANT:
-        # Check four-point priority even when
-        # a triangle already exists.
+        # PLANTED LINE
         # ----------------------------------
 
+        cv2.line(
+            frame,
+            planted_thumb,
+            planted_index,
+            WHITE,
+            WHITE_LINE_THICKNESS,
+            cv2.LINE_AA
+        )
+
+        # ----------------------------------
+        # TRIANGLE
+        # ----------------------------------
+
+        if self.one_hand_shape[hand] == "triangle":
+
+            cv2.line(
+                frame,
+                planted_thumb,
+                current_index,
+                WHITE,
+                WHITE_LINE_THICKNESS,
+                cv2.LINE_AA
+            )
+
+            cv2.line(
+                frame,
+                planted_index,
+                current_index,
+                WHITE,
+                WHITE_LINE_THICKNESS,
+                cv2.LINE_AA
+            )
+
+            return
+
+        # ----------------------------------
+        # RECTANGLE
+        # ----------------------------------
+
+        if thumb_name not in anchors:
+            return
+
+        current_thumb = anchors[thumb_name]
+
+        # Current moving thumb -> index line.
+        cv2.line(
+            frame,
+            current_thumb,
+            current_index,
+            WHITE,
+            WHITE_LINE_THICKNESS,
+            cv2.LINE_AA
+        )
+
+        # Planted thumb -> current thumb.
+        cv2.line(
+            frame,
+            planted_thumb,
+            current_thumb,
+            WHITE,
+            WHITE_LINE_THICKNESS,
+            cv2.LINE_AA
+        )
+
+        # Planted index -> current index.
+        cv2.line(
+            frame,
+            planted_index,
+            current_index,
+            WHITE,
+            WHITE_LINE_THICKNESS,
+            cv2.LINE_AA
+        )
+
+    # ======================================
+    # ONE-HAND IMPLANT
+    # ======================================
+
+    def implant_one_hand(
+        self,
+        hand,
+        anchors
+    ):
+
+        if not self.one_hand_active[hand]:
+            return
+
+        planted = self.one_hand_planted[hand]
+
+        if planted is None:
+            return
+
+        planted_thumb, planted_index = planted
+
+        thumb_name = hand + "_thumb"
+        index_name = hand + "_index"
+
+        if index_name not in anchors:
+            return
+
+        current_index = anchors[index_name]
+
+        # ----------------------------------
+        # TRIANGLE
+        # ----------------------------------
+
+        if self.one_hand_shape[hand] == "triangle":
+
+            self.fixed_lines.append(
+                FixedLine(
+                    planted_thumb,
+                    planted_index,
+                    owner=hand
+                )
+            )
+
+            self.fixed_lines.append(
+                FixedLine(
+                    planted_thumb,
+                    current_index,
+                    owner=hand
+                )
+            )
+
+            self.fixed_lines.append(
+                FixedLine(
+                    planted_index,
+                    current_index,
+                    owner=hand
+                )
+            )
+
+        # ----------------------------------
+        # RECTANGLE
+        # ----------------------------------
+
+        else:
+
+            if thumb_name not in anchors:
+                return
+
+            current_thumb = anchors[thumb_name]
+
+            self.fixed_lines.append(
+                FixedLine(
+                    planted_thumb,
+                    planted_index,
+                    owner=hand
+                )
+            )
+
+            self.fixed_lines.append(
+                FixedLine(
+                    planted_thumb,
+                    current_thumb,
+                    owner=hand
+                )
+            )
+
+            self.fixed_lines.append(
+                FixedLine(
+                    current_thumb,
+                    current_index,
+                    owner=hand
+                )
+            )
+
+            self.fixed_lines.append(
+                FixedLine(
+                    current_index,
+                    planted_index,
+                    owner=hand
+                )
+            )
+
+        self.cancel_one_hand(hand)
+
+    # ======================================
+    # CANCEL ONE-HAND
+    # ======================================
+
+    def cancel_one_hand(self, hand):
+
+        self.one_hand_active[hand] = False
+        self.one_hand_planted[hand] = None
+        self.one_hand_shape[hand] = None
+        self.one_hand_thumb_closed[hand] = False
+
+    # ======================================
+    # NORMAL LIVE DRAW
+    # ======================================
+
+    def draw_live(self, frame, anchors):
+
+        # ----------------------------------
+        # EXISTING TWO-HAND SYSTEM
+        # ----------------------------------
+
+        if (
+            not self.one_hand_active["left"]
+            and
+            not self.one_hand_active["right"]
+        ):
+
+            if not self.structure_active:
+                self.process_contact(anchors)
+
+        # Four-point priority.
         if (
             self.left_created
             and
             self.right_created
+            and
+            not self.one_hand_active["left"]
+            and
+            not self.one_hand_active["right"]
         ):
 
-            group = self.find_connected_group(
-                anchors
-            )
+            group = self.find_connected_group(anchors)
 
             if len(group) == 4:
 
-                self.create_rectangle(
-                    group
-                )
+                self.create_rectangle(group)
 
-                self.contact_anchors = set(
-                    group
-                )
-
+                self.contact_anchors = set(group)
                 self.structure_created = True
 
-        if not self.structure_active:
+        self.update_hand_recovery(anchors)
 
-            self.process_contact(
-                anchors
-            )
+        if not self.structure_hidden:
 
-        self.update_hand_recovery(
+            for line in self.live_lines:
+
+                line.draw(
+                    frame,
+                    anchors
+                )
+
+        # ----------------------------------
+        # ONE-HAND SYSTEM
+        # ----------------------------------
+
+        self.draw_one_hand(
+            frame,
+            "left",
             anchors
         )
 
-        if self.structure_hidden:
-            return
-
-        for line in self.live_lines:
-
-            line.draw(
-                frame,
-                anchors
-            )
+        self.draw_one_hand(
+            frame,
+            "right",
+            anchors
+        )
 
     # ======================================
-    # IMPLANT RECTANGLE
+    # NORMAL IMPLANT RECTANGLE
     # ======================================
 
-    def implant_rectangle(
-        self,
-        anchors
-    ):
+    def implant_rectangle(self, anchors):
 
         if (
             not self.structure_active
@@ -764,33 +961,19 @@ class LineSystem:
         for line in self.live_lines:
 
             if (
-                line.start_anchor
-                not in anchors
+                line.start_anchor not in anchors
                 or
-                line.end_anchor
-                not in anchors
+                line.end_anchor not in anchors
             ):
                 continue
 
-            start = anchors[
-                line.start_anchor
-            ]
-
-            end = anchors[
-                line.end_anchor
-            ]
-
             self.fixed_lines.append(
                 FixedLine(
-                    start,
-                    end,
+                    anchors[line.start_anchor],
+                    anchors[line.end_anchor],
                     owner="rectangle"
                 )
             )
-
-        # ----------------------------------
-        # RECTANGLE IS NOW FIXED
-        # ----------------------------------
 
         self.live_lines = []
 
@@ -798,15 +981,12 @@ class LineSystem:
         self.right_created = False
 
         self.contact_anchors = set()
-
         self.contact_active = False
         self.structure_created = False
 
         self.structure_active = False
         self.structure_anchors = []
-
         self.structure_type = None
-
         self.structure_hidden = False
 
         self.hand_missing_since = {
@@ -815,13 +995,10 @@ class LineSystem:
         }
 
     # ======================================
-    # IMPLANT TRIANGLE
+    # NORMAL IMPLANT TRIANGLE
     # ======================================
 
-    def implant_triangle(
-        self,
-        anchors
-    ):
+    def implant_triangle(self, anchors):
 
         if (
             not self.structure_active
@@ -833,52 +1010,32 @@ class LineSystem:
         for line in self.live_lines:
 
             if (
-                line.start_anchor
-                not in anchors
+                line.start_anchor not in anchors
                 or
-                line.end_anchor
-                not in anchors
+                line.end_anchor not in anchors
             ):
                 continue
 
-            start = anchors[
-                line.start_anchor
-            ]
-
-            end = anchors[
-                line.end_anchor
-            ]
-
             self.fixed_lines.append(
                 FixedLine(
-                    start,
-                    end,
+                    anchors[line.start_anchor],
+                    anchors[line.end_anchor],
                     owner="triangle"
                 )
             )
 
-        # ----------------------------------
-        # TRIANGLE IS NOW FIXED
-        # ----------------------------------
-
         self.live_lines = []
-
-        # Reset BOTH hand states so either
-        # hand can immediately create a new line.
 
         self.left_created = False
         self.right_created = False
 
         self.contact_anchors = set()
-
         self.contact_active = False
         self.structure_created = False
 
         self.structure_active = False
         self.structure_anchors = []
-
         self.structure_type = None
-
         self.structure_hidden = False
 
         self.hand_missing_since = {
@@ -887,50 +1044,40 @@ class LineSystem:
         }
 
     # ======================================
-    # IMPLANT ONE HAND
+    # NORMAL HAND IMPLANT
     # ======================================
 
-    def implant_hand(
-        self,
-        hand,
-        anchors
-    ):
+    def implant_hand(self, hand, anchors):
 
-        # ==================================
-        # SPECIAL RECTANGLE CASE
-        # ==================================
+        # One-hand geometry has priority.
+        if self.one_hand_active[hand]:
 
+            self.implant_one_hand(
+                hand,
+                anchors
+            )
+
+            return
+
+        # Existing two-hand rectangle.
         if (
             self.structure_active
             and
             self.structure_type == "rectangle"
         ):
 
-            self.implant_rectangle(
-                anchors
-            )
-
+            self.implant_rectangle(anchors)
             return
 
-        # ==================================
-        # SPECIAL TRIANGLE CASE
-        # ==================================
-
+        # Existing two-hand triangle.
         if (
             self.structure_active
             and
             self.structure_type == "triangle"
         ):
 
-            self.implant_triangle(
-                anchors
-            )
-
+            self.implant_triangle(anchors)
             return
-
-        # ==================================
-        # NORMAL LINE BEHAVIOR
-        # ==================================
 
         prefix = hand + "_"
 
@@ -938,56 +1085,27 @@ class LineSystem:
 
         for line in self.live_lines:
 
-            start_is_hand = (
-                line.start_anchor.startswith(
-                    prefix
-                )
-            )
+            start_is_hand = line.start_anchor.startswith(prefix)
+            end_is_hand = line.end_anchor.startswith(prefix)
 
-            end_is_hand = (
-                line.end_anchor.startswith(
-                    prefix
-                )
-            )
+            if not (start_is_hand or end_is_hand):
 
-            if not (
-                start_is_hand
-                or
-                end_is_hand
-            ):
-
-                remaining_lines.append(
-                    line
-                )
-
+                remaining_lines.append(line)
                 continue
 
             if (
-                line.start_anchor
-                not in anchors
+                line.start_anchor not in anchors
                 or
-                line.end_anchor
-                not in anchors
+                line.end_anchor not in anchors
             ):
 
-                remaining_lines.append(
-                    line
-                )
-
+                remaining_lines.append(line)
                 continue
-
-            start = anchors[
-                line.start_anchor
-            ]
-
-            end = anchors[
-                line.end_anchor
-            ]
 
             self.fixed_lines.append(
                 FixedLine(
-                    start,
-                    end,
+                    anchors[line.start_anchor],
+                    anchors[line.end_anchor],
                     owner=hand
                 )
             )
@@ -995,45 +1113,30 @@ class LineSystem:
         self.live_lines = remaining_lines
 
         if hand == "left":
-
             self.left_created = False
 
         if hand == "right":
-
             self.right_created = False
 
     # ======================================
     # IMPLANT ALL
     # ======================================
 
-    def implant(
-        self,
-        anchors
-    ):
+    def implant(self, anchors):
 
         for line in self.live_lines:
 
             if (
-                line.start_anchor
-                not in anchors
+                line.start_anchor not in anchors
                 or
-                line.end_anchor
-                not in anchors
+                line.end_anchor not in anchors
             ):
                 continue
 
-            start = anchors[
-                line.start_anchor
-            ]
-
-            end = anchors[
-                line.end_anchor
-            ]
-
             self.fixed_lines.append(
                 FixedLine(
-                    start,
-                    end
+                    anchors[line.start_anchor],
+                    anchors[line.end_anchor]
                 )
             )
 
@@ -1043,21 +1146,21 @@ class LineSystem:
         self.right_created = False
 
         self.contact_anchors = set()
-
         self.contact_active = False
         self.structure_created = False
 
         self.structure_active = False
         self.structure_anchors = []
-
         self.structure_type = None
-
         self.structure_hidden = False
 
         self.hand_missing_since = {
             "left": None,
             "right": None,
         }
+
+        self.cancel_one_hand("left")
+        self.cancel_one_hand("right")
 
     # ======================================
     # CLEAR
@@ -1072,13 +1175,11 @@ class LineSystem:
         self.right_created = False
 
         self.contact_anchors = set()
-
         self.contact_active = False
         self.structure_created = False
 
         self.structure_active = False
         self.structure_anchors = []
-
         self.structure_type = None
 
         self.structure_hidden = False
@@ -1088,19 +1189,17 @@ class LineSystem:
             "right": None,
         }
 
+        self.cancel_one_hand("left")
+        self.cancel_one_hand("right")
+
         self.clear_time = time.perf_counter()
 
     # ======================================
-    # DRAW IMPLANTED
+    # DRAW FIXED
     # ======================================
 
-    def draw_fixed(
-        self,
-        frame
-    ):
+    def draw_fixed(self, frame):
 
         for line in self.fixed_lines:
 
-            line.draw(
-                frame
-            )
+            line.draw(frame)
