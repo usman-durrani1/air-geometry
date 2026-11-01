@@ -8,11 +8,11 @@ The project is complete as a gesture-driven drawing demo. It is not a CAD tool o
 
 - Tracks up to two hands using MediaPipe Hand Landmarker.
 - Displays detected hand landmarks and tracking connections.
-- Creates live lines using thumb-and-index-finger pinches.
-- Builds two-hand triangle and rectangle structures when the control points are brought together.
+- Creates a live line when the thumb and index finger of a hand are pinched together.
+- Combines the two hands' live lines into two-hand triangle and rectangle structures.
 - Supports one-hand rectangle and triangle drawing.
-- Lets you place completed geometry so it remains on screen.
-- Clears the drawing with a fist gesture.
+- Lets you implant geometry so it remains on screen.
+- Clears the drawing with a full-fist gesture.
 - Displays the current frame rate (FPS).
 
 ## Requirements
@@ -71,16 +71,34 @@ Allow the application to use your webcam if your operating system asks for permi
 
 ## Gesture controls
 
+### Basic line creation
+
 | Gesture | Action |
 | --- | --- |
-| Pinch thumb and index finger | Create a live line for that hand |
-| Bring three control points together | Form a two-hand triangle |
-| Bring all four control points together | Form a two-hand rectangle |
-| Hold the one-hand geometry pose for about 1 second | Start one-hand geometry |
-| Pinch while one-hand geometry is active | Switch the one-hand shape to a triangle |
-| Thumb and index open; middle, ring, and pinky closed | Place/implant the current geometry |
+| Pinch the thumb and index finger of one hand together | Create that hand's live line, connecting its thumb and index control points |
+
+### Two-hand geometry
+
+1. Pinch the thumb and index finger on each hand to create two separate live lines: one controlled by the left hand and one by the right.
+2. Bring **three of the four control points** (the two thumb tips and two index fingertips) close together. The connected points form a two-hand triangle.
+3. Bring **all four control points** close together. They form a two-hand rectangle.
+4. While the two-hand triangle or rectangle is active, use the implant gesture with either hand to place the complete structure on the screen.
+
+### One-hand geometry
+
+1. With one hand, extend the **thumb, index, and middle fingers** while keeping the **ring and pinky fingers closed**. Hold this pose for about one second to start a one-hand rectangle.
+2. While the one-hand rectangle is active, pinch the **thumb and index finger** together to change it into a one-hand triangle.
+3. To implant the active one-hand rectangle or triangle, extend the **thumb and index fingers** while closing the **middle, ring, and pinky fingers**.
+
+### Implant and clear gestures
+
+| Gesture | Action |
+| --- | --- |
+| Thumb and index fingers open; middle, ring, and pinky fingers closed | Implant the current line or active geometry so it remains on screen |
 | Close all five fingers into a fist | Clear the drawing |
-| Press `Q` | Quit |
+| Press `Q` | Quit the application |
+
+**Note:** In the current code, a full fist detected on either hand triggers the clear action; both fists do not have to be closed at the same time.
 
 Gesture recognition depends on camera angle, lighting, hand visibility, and tracking quality. Keep your hands inside the camera frame for the most reliable interaction.
 
