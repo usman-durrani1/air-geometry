@@ -2,8 +2,10 @@
 # AIR GEOMETRY CONFIGURATION
 # ==========================================
 
+from pathlib import Path
 
-MODEL_PATH = "hand_landmarker.task"
+PROJECT_DIR = Path(__file__).resolve().parent
+MODEL_PATH = str(PROJECT_DIR / "hand_landmarker.task")
 
 
 # ------------------------------------------
